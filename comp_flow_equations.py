@@ -155,13 +155,19 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
     
     def shock_pos_to_outlet_conditions(p):
         As_Astar1 = q(p) * Ai_Astar1
-        M1 = get_mach_from_expansion_ratio(As_Astar1, approx_A_Astar_to_M(As_Astar1))
+        approx = approx_A_Astar_to_M(As_Astar1)
+  
+        M1 = get_mach_from_expansion_ratio(As_Astar1, approx)
         M2 = shock_mach_number(M1)
         P02_P01 = shock_stagn_press_ratio(M1)
         As_Astar2 = expansion_ratio(M2)
         Ae_Astar2 = As_Astar2 / (n*q(p))
         
-        Me = get_mach_from_expansion_ratio(Ae_Astar2, 0.5)
+        if n < 1:
+            approx = 0.25
+        else:
+            approx = M2
+        Me = get_mach_from_expansion_ratio(Ae_Astar2, approx)
         Pe = P02_P01 * P01 / stagn_press_ratio(Me)
         Pe_Δ = Pb - Pe
         
@@ -227,6 +233,6 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
 if __name__ == "__main__":
     tic = perf_counter_ns()
     # print(reflected_shock_wave(1.5, 300))
-    print(find_shock_position(2.8, 3, 100e3, 60e3))
+    print(find_shock_position(1.8, 1/3, 100e3, 60e3))
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")
