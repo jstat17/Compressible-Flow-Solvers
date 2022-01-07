@@ -302,10 +302,105 @@ def fanno_sonic_temp_ratio(M): # (7.21)
 def fanno_length_parameter(M): # (7.28)
     return -1/k - (k+1)/(2*k) * log(1/(1 + (k-1)/2)) + 1/(k*M**2) + (k+1)/(2*k) * log(M**2/(1 + (k-1)/2*M**2))
     
+def get_mach_from_fanno_length_parameter(fanno_param, Mi):
+    if Mi < 1:
+        M_lower = 0.001
+        M_upper = 1
+    
+    elif Mi > 1:
+        M_lower = 1
+        M_upper = 10
+        
+    else: # Mi = 1 in this case
+        return 1
+    
+    M_mid = (M_lower + M_upper) / 2
+    fanno_M_lower = fanno_length_parameter(M_lower)
+    fanno_M_upper = fanno_length_parameter(M_upper)
+    
+    while True:
+        fanno_M_mid = fanno_length_parameter(M_mid)
+        
+        if fanno_M_lower < fanno_param < fanno_M_mid or fanno_M_lower > fanno_param > fanno_M_mid:
+            fanno_M_upper = fanno_M_mid
+            M_upper = M_mid
+            
+        elif fanno_M_mid < fanno_param < fanno_M_upper or fanno_M_mid > fanno_param > fanno_M_upper:
+            fanno_M_lower = fanno_M_mid
+            M_lower = M_mid
+            
+        M_prev = M_mid
+        M_mid = (M_lower + M_upper) / 2
+        
+        if abs(M_mid - M_prev) < ε:
+            return M_mid
+    
+def solve_fanno_duct(Mi, f, Dh, L):
+    if Mi > 1:
+        fanno_param_inlet = fanno_length_parameter(Mi)
+        Lstar = fanno_param_inlet * Dh / 4 / f
+        
+        if L > Lstar: # the duct chokes + supersonic inlet, so there will be a shock wave
+            L_lower = 0
+            L_upper = Lstar
+            
+            def get_fanno_exit_Δ_from_shock_pos_guess(L1):
+                fanno_param_upstream_of_shock = fanno_param_inlet - 4*f*L1/Dh
+                M1 = get_mach_from_fanno_length_parameter(fanno_param_upstream_of_shock, 1.5)
+                M2 = shock_mach_number(M1)
+                fanno_param_downstream_of_shock = fanno_length_parameter(M2)
+                
+                return fanno_param_downstream_of_shock - 4*f*(L-L1)/Dh
+            
+            # fanno_exit_Δ_lower = get_fanno_exit_Δ_from_shock_pos_guess(L_lower)
+            # fanno_exit_Δ_upper = get_fanno_exit_Δ_from_shock_pos_guess(L_upper)
+            L_mid = (L_lower + L_upper) / 2
+            fanno_exit_Δ_mid = 0
+            while True:
+                fanno_prev = fanno_exit_Δ_mid
+                fanno_exit_Δ_mid = get_fanno_exit_Δ_from_shock_pos_guess(L_mid)
+                
+                if fanno_exit_Δ_mid < 0:
+                    # fanno_exit_Δ_upper = fanno_exit_Δ_mid
+                    L_upper = L_mid
+                    
+                elif fanno_exit_Δ_mid > 0:
+                    # fanno_exit_Δ_lower = fanno_exit_Δ_mid
+                    L_lower = L_mid
+                    
+                L_mid = (L_lower + L_upper) / 2
+                
+                if abs(fanno_exit_Δ_mid - fanno_prev) < ε:
+                    Ls = L_mid # L shock
+                    break
+                
+            print(f"Distance from inlet to shockwave: {Ls} m")
+            P_ratio_list = []
+            P_ratio_list.append(fanno_sonic_press_ratio(Mi)) # Pi / Pstar,1
+            M1 = get_mach_from_fanno_length_parameter( P_ratio_list[0] - 4*f*Ls/Dh , 1.5)
+            P_ratio_list.append(1/fanno_sonic_press_ratio(M1)) # Pstar,1 / P1
+            P_ratio_list.append(1/shock_stat_press_ratio(M1)) # P1 / P2
+            M2 = shock_mach_number(M1)
+            P_ratio_list.append(fanno_sonic_press_ratio(M2)) # P2 / Pstar,2 = P2 / Pe
+            
+            T_ratio_list = []
+            T_ratio_list.append(fanno_sonic_temp_ratio(Mi)) # Ti / Tstar,1
+            T_ratio_list.append(1/fanno_sonic_temp_ratio(M1)) # Tstar,1 / T1
+            T_ratio_list.append(1/shock_stat_temp_ratio(M1)) # T1 / T2
+            T_ratio_list.append(fanno_sonic_temp_ratio(M2)) # T2 / Tstar,2 = T2 / Te
+            
+            total_stat_press_ratio, total_stat_temp_ratio = 1, 1
+            for ratio_press, ratio_temp in zip(P_ratio_list, T_ratio_list):
+                total_stat_press_ratio *= ratio_press
+                total_stat_temp_ratio *= ratio_temp
+            
+            return {'Ls': Ls, 'Pi/Pe': total_stat_press_ratio, 'Ti/Te': total_stat_temp_ratio}
+    
 if __name__ == "__main__":
     tic = perf_counter_ns()
     # print(reflected_shock_wave(1.5, 300))
     # print(find_shock_position(1.8, 1/3, 100e3, 60e3))
     # print(find_shock_position(2.8, 3, 100e3, 60e3))
+    print(solve_fanno_duct(5, 0.0035, 12.7e-3, 1))
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")
