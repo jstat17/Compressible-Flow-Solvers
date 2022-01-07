@@ -1,5 +1,6 @@
 ## imports
 from time import perf_counter_ns
+from math import log
 
 ## convergence conditions
 ε = 1e-8
@@ -38,6 +39,10 @@ def expansion_ratio(M): # (4.38)
     return 1/M * ( ((k+1)/2) / (stagn_temp_ratio(M)) ) ** ((k+1)/(2-2*k)) # A / A*
 
 def get_mach_from_expansion_ratio(A_Astar, Mi=1.5):
+    # TODO:
+    # Use bisection search for subsonic inlet Mach number due to odd behavior of the Newton-Raphson method (jumping over to
+    # the supersonic regime because of the high gradient changes in 0 < M < 1), and because it is bounded, so bisection search
+    # would be the fastest method. Keep the current solver for supersonic Mi as the region is unbounded (M > 1).
     objective_function = lambda M, A_Astar=A_Astar: A_Astar - expansion_ratio(M)
     begin = True
     Mi_next = Mi
@@ -202,7 +207,7 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
         p_lower = 0
     
     p_upper = 1
-    print(f"bounds: [{p_lower:.4f}, {p_upper:.4f}]")
+    print(f"bounds: [{p_lower:.4f}, {p_upper:.4f}]") # where the solver will look for the shockwave
     Pe_Δ_upper = shock_pos_to_outlet_conditions(p_upper)['Pe_Δ']
     Pe_Δ_lower = shock_pos_to_outlet_conditions(p_lower)['Pe_Δ']
     p_mid = (p_upper + p_lower) / 2
@@ -230,9 +235,77 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
     
     return dict_exit_cond
 
+
+
+## Fanno Flow (adiabatic flow with friction)
+
+def get_hydraulic_diameter(shape_dict): # (7.3)
+    '''
+    Returns the hydraulic diameter (Dh) for a cross-section.
+    
+    Parameters:
+    shape_dict (dict): Gives the dimensions of the input shape
+        shape_dict['shape']: an implemented shape in this function
+        shape_dict['side']: the side length of shape 'square'
+        shape_dict['diameter']: the diameter of shape 'circle'
+        shape_dict['side1']: the length of side 1 for shape 'rectangle'
+        shape_dict['side2']: the length of side 2 for shape 'rectangle'
+        
+    Returns:
+    float: the hydraulic diameter of the input shape
+    '''
+
+    try:
+        shape = shape_dict['shape']
+        if shape == 'square':
+            return shape_dict['side']
+        elif shape == 'circle':
+                return shape_dict['diameter']
+        elif shape == 'rectangle':
+            A = shape_dict['side1']
+            B = shape_dict['side2']
+            return 2*A*B/(A+B)
+        else:
+            print(f"\n\nEXCEPTION:\n\nShape '{shape_dict['shape']}' not implemented in the get_hydraulic_diameter function.\nThe program will now terminate.")
+            exit()
+    except KeyError:
+        print("\n\nEXCEPTION:\n\nYou are missing a key in the input dictionary for the selected shape in the 'get_hydraulic_diameter' function.\nThe program will now terminate.")
+        exit()
+        
+ # For Python 3.10 and above
+    # try:
+    #     match shape_dict['shape']:
+    #         case 'square':
+    #             return shape_dict['side']
+    #         case 'circle':
+    #             return shape_dict['diameter']
+    #         case 'rectangle':
+    #             A = shape_dict['side1']
+    #             B = shape_dict['side2']
+    #             return 2*A*B/(A+B)
+    #         case _:
+    #             print(f"\n\nEXCEPTION:\n\nShape '{shape_dict['shape']}' not implemented in the get_hydraulic_diameter function.\nThe program will now terminate.")
+    #             exit()
+    # except KeyError:
+    #     print("\n\nEXCEPTION:\n\nYou are missing a key in the input dictionary for the selected shape in the 'get_hydraulic_diameter' function.\nThe program will now terminate.")
+    #     exit()
+    
+def fanno_sonic_stagn_press_ratio(M): # (7.25)
+    return 1/M * ( (1 + (k-1)/2 * M**2) / ((k+1)/2) ) ** ((k+1) / (2*k - 2)) # P0 / P0star
+
+def fanno_sonic_press_ratio(M): # (7.22)
+    return 1/M * fanno_sonic_temp_ratio(M) ** 0.5 # P / Pstar
+
+def fanno_sonic_temp_ratio(M): # (7.21)
+    return ((k+1)/2) / (1 + (k-1)/2 * M**2) # T / Tstar
+
+def fanno_length_parameter(M): # (7.28)
+    return -1/k - (k+1)/(2*k) * log(1/(1 + (k-1)/2)) + 1/(k*M**2) + (k+1)/(2*k) * log(M**2/(1 + (k-1)/2*M**2))
+    
 if __name__ == "__main__":
     tic = perf_counter_ns()
     # print(reflected_shock_wave(1.5, 300))
-    print(find_shock_position(1.8, 1/3, 100e3, 60e3))
+    # print(find_shock_position(1.8, 1/3, 100e3, 60e3))
+    # print(find_shock_position(2.8, 3, 100e3, 60e3))
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")

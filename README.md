@@ -1,6 +1,6 @@
 # Compressible Flow Solvers
-## Solvers and functions for compressible flow problems
-- Includes equations governing the compressible flow of gases (air) for variable area flow with or without shockwaves.
+## Solvers and functions for compressible flow problems (in Python)
+- Includes equations governing the compressible flow of gases (air) for: variable area (isentropic) flow with or without shockwaves.
 
 - Currently, there are two solvers:
     1. Solve for the mach number of a shockwave that reflects off a wall.
