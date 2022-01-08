@@ -336,9 +336,24 @@ def get_mach_from_fanno_length_parameter(fanno_param, Mi):
             return M_mid
     
 def solve_fanno_duct(Mi, f, Dh, L):
+    fanno_param_inlet = fanno_length_parameter(Mi)
+    Lstar = fanno_param_inlet * Dh / 4 / f
+    
+    if L < Lstar: # duct shorter than choking length
+        fanno_param_exit = 4*f*(Lstar-L)/Dh
+        Me = get_mach_from_fanno_length_parameter(fanno_param_exit, Mi)
+        Pi_Pe = fanno_sonic_press_ratio(Mi) / fanno_sonic_press_ratio(Me)
+        P0i_P0e = fanno_sonic_stagn_press_ratio(Mi) / fanno_sonic_stagn_press_ratio(Me)
+        Ti_Te = fanno_sonic_temp_ratio(Mi) / fanno_sonic_temp_ratio(Me)
+        
+        return {'Me': Me,
+                'Pi/Pe': Pi_Pe,
+                'P0i/P0e': P0i_P0e,
+                'Ti/Te': Ti_Te,
+                'T0i/T0e': 1
+                }
+    
     if Mi > 1:
-        fanno_param_inlet = fanno_length_parameter(Mi)
-        Lstar = fanno_param_inlet * Dh / 4 / f
         
         if L > Lstar: # the duct chokes + supersonic inlet, so there will be a shock wave
             L_lower = 0
@@ -383,18 +398,34 @@ def solve_fanno_duct(Mi, f, Dh, L):
             M2 = shock_mach_number(M1)
             P_ratio_list.append(fanno_sonic_press_ratio(M2)) # P2 / Pstar,2 = P2 / Pe
             
+            P_stagn_ratio_list = []
+            P_stagn_ratio_list.append(fanno_sonic_stagn_press_ratio(Mi)) # P0i / P0star,1
+            P_stagn_ratio_list.append(1/fanno_sonic_stagn_press_ratio(M1)) # P0star,1 / P01
+            P_stagn_ratio_list.append(1/shock_stagn_press_ratio(M1)) # P01 / P02
+            P_stagn_ratio_list.append(fanno_sonic_stagn_press_ratio(M2)) # P02 / P0star,2 = P02 / P0e
+            
             T_ratio_list = []
             T_ratio_list.append(fanno_sonic_temp_ratio(Mi)) # Ti / Tstar,1
             T_ratio_list.append(1/fanno_sonic_temp_ratio(M1)) # Tstar,1 / T1
             T_ratio_list.append(1/shock_stat_temp_ratio(M1)) # T1 / T2
             T_ratio_list.append(fanno_sonic_temp_ratio(M2)) # T2 / Tstar,2 = T2 / Te
             
-            total_stat_press_ratio, total_stat_temp_ratio = 1, 1
-            for ratio_press, ratio_temp in zip(P_ratio_list, T_ratio_list):
+            total_stat_press_ratio, total_stagn_press_ratio, total_stat_temp_ratio = 1, 1, 1
+            for ratio_press, ratio_stagn_press, ratio_temp in zip(P_ratio_list, P_stagn_ratio_list, T_ratio_list):
                 total_stat_press_ratio *= ratio_press
                 total_stat_temp_ratio *= ratio_temp
+                total_stagn_press_ratio *= ratio_stagn_press
             
-            return {'Ls': Ls, 'Pi/Pe': total_stat_press_ratio, 'Ti/Te': total_stat_temp_ratio}
+            return {'Me': 1,
+                    'Ls': Ls,
+                    'Pi/Pe': total_stat_press_ratio,
+                    'P0i/P0e': total_stagn_press_ratio,
+                    'Ti/Te': total_stat_temp_ratio,
+                    'T0i/T0e': 1
+                    }
+        
+        
+            
     
 if __name__ == "__main__":
     tic = perf_counter_ns()
@@ -402,5 +433,6 @@ if __name__ == "__main__":
     # print(find_shock_position(1.8, 1/3, 100e3, 60e3))
     # print(find_shock_position(2.8, 3, 100e3, 60e3))
     print(solve_fanno_duct(5, 0.0035, 12.7e-3, 1))
+    # print(solve_fanno_duct(0.46, 0.0035, 25.4e-3, 2.6))
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")
