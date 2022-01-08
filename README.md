@@ -9,4 +9,4 @@
     4. Solve for the exit conditions of a Rayleigh duct.
 
 ## Package requirements
-Currently no additional packages are required.
+Currently no additional packages are required other than those in the standard library.
