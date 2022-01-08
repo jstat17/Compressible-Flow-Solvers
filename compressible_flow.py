@@ -294,10 +294,10 @@ def get_hydraulic_diameter(shape_dict): # (7.3)
 def fanno_sonic_stagn_press_ratio(M): # (7.25)
     return 1/M * ( (1 + (k-1)/2 * M**2) / ((k+1)/2) ) ** ((k+1) / (2*k - 2)) # P0 / P0star
 
-def fanno_sonic_press_ratio(M): # (7.22)
-    return 1/M * fanno_sonic_temp_ratio(M) ** 0.5 # P / Pstar
+def fanno_sonic_stat_press_ratio(M): # (7.22)
+    return 1/M * fanno_sonic_stat_temp_ratio(M) ** 0.5 # P / Pstar
 
-def fanno_sonic_temp_ratio(M): # (7.21)
+def fanno_sonic_stat_temp_ratio(M): # (7.21)
     return ((k+1)/2) / (1 + (k-1)/2 * M**2) # T / Tstar
 
 def fanno_length_parameter(M): # (7.28)
@@ -343,9 +343,9 @@ def solve_fanno_duct(Mi, f, Dh, L):
     if L < Lstar: # duct shorter than choking length
         fanno_param_exit = 4*f*(Lstar-L)/Dh
         Me = get_mach_from_fanno_length_parameter(fanno_param_exit, Mi)
-        Pi_Pe = fanno_sonic_press_ratio(Mi) / fanno_sonic_press_ratio(Me)
+        Pi_Pe = fanno_sonic_stat_press_ratio(Mi) / fanno_sonic_stat_press_ratio(Me)
         P0i_P0e = fanno_sonic_stagn_press_ratio(Mi) / fanno_sonic_stagn_press_ratio(Me)
-        Ti_Te = fanno_sonic_temp_ratio(Mi) / fanno_sonic_temp_ratio(Me)
+        Ti_Te = fanno_sonic_stat_temp_ratio(Mi) / fanno_sonic_stat_temp_ratio(Me)
         
         return {'Me': Me,
                 'Pi/Pe': Pi_Pe,
@@ -354,15 +354,14 @@ def solve_fanno_duct(Mi, f, Dh, L):
                 'T0i/T0e': 1
                 }
     
-    if Mi > 1:
-        
-        if L > Lstar: # the duct chokes + supersonic inlet, so there will be a shock wave
+    else: # L >= Lstar
+        if Mi > 1: # the duct chokes + supersonic inlet, so there will be a shock wave
             L_lower = 0
             L_upper = Lstar
             
             def get_fanno_exit_Δ_from_shock_pos_guess(L1):
                 fanno_param_upstream_of_shock = fanno_param_inlet - 4*f*L1/Dh
-                M1 = get_mach_from_fanno_length_parameter(fanno_param_upstream_of_shock, 1.5)
+                M1 = get_mach_from_fanno_length_parameter(fanno_param_upstream_of_shock, Mi)
                 M2 = shock_mach_number(M1)
                 fanno_param_downstream_of_shock = fanno_length_parameter(M2)
                 
@@ -392,12 +391,12 @@ def solve_fanno_duct(Mi, f, Dh, L):
                 
             print(f"Distance from inlet to shockwave: {Ls} m")
             P_ratio_list = []
-            P_ratio_list.append(fanno_sonic_press_ratio(Mi)) # Pi / Pstar,1
+            P_ratio_list.append(fanno_sonic_stat_press_ratio(Mi)) # Pi / Pstar,1
             M1 = get_mach_from_fanno_length_parameter( P_ratio_list[0] - 4*f*Ls/Dh , 1.5)
-            P_ratio_list.append(1/fanno_sonic_press_ratio(M1)) # Pstar,1 / P1
+            P_ratio_list.append(1/fanno_sonic_stat_press_ratio(M1)) # Pstar,1 / P1
             P_ratio_list.append(1/shock_stat_press_ratio(M1)) # P1 / P2
             M2 = shock_mach_number(M1)
-            P_ratio_list.append(fanno_sonic_press_ratio(M2)) # P2 / Pstar,2 = P2 / Pe
+            P_ratio_list.append(fanno_sonic_stat_press_ratio(M2)) # P2 / Pstar,2 = P2 / Pe
             
             P_stagn_ratio_list = []
             P_stagn_ratio_list.append(fanno_sonic_stagn_press_ratio(Mi)) # P0i / P0star,1
@@ -406,10 +405,10 @@ def solve_fanno_duct(Mi, f, Dh, L):
             P_stagn_ratio_list.append(fanno_sonic_stagn_press_ratio(M2)) # P02 / P0star,2 = P02 / P0e
             
             T_ratio_list = []
-            T_ratio_list.append(fanno_sonic_temp_ratio(Mi)) # Ti / Tstar,1
-            T_ratio_list.append(1/fanno_sonic_temp_ratio(M1)) # Tstar,1 / T1
+            T_ratio_list.append(fanno_sonic_stat_temp_ratio(Mi)) # Ti / Tstar,1
+            T_ratio_list.append(1/fanno_sonic_stat_temp_ratio(M1)) # Tstar,1 / T1
             T_ratio_list.append(1/shock_stat_temp_ratio(M1)) # T1 / T2
-            T_ratio_list.append(fanno_sonic_temp_ratio(M2)) # T2 / Tstar,2 = T2 / Te
+            T_ratio_list.append(fanno_sonic_stat_temp_ratio(M2)) # T2 / Tstar,2 = T2 / Te
             
             total_stat_press_ratio, total_stagn_press_ratio, total_stat_temp_ratio = 1, 1, 1
             for ratio_press, ratio_stagn_press, ratio_temp in zip(P_ratio_list, P_stagn_ratio_list, T_ratio_list):
@@ -425,6 +424,17 @@ def solve_fanno_duct(Mi, f, Dh, L):
                     'T0i/T0e': 1
                     }
         
+        elif Mi < 1: # duct chokes and inlet subsonic so inlet flow Mach number drops
+            fanno_param_inlet = 4*f*L/Dh # update inlet fanno length parameter
+            Mi = get_mach_from_fanno_length_parameter(fanno_param_inlet, Mi) # update inlet Mach
+            
+            return {'Mi': Mi,
+                    'Me': 1,
+                    'Pi/Pe': fanno_sonic_stat_press_ratio(Mi),
+                    'P0i/P0e': fanno_sonic_stagn_press_ratio(Mi),
+                    'Ti/Te': fanno_sonic_stat_temp_ratio(Mi),
+                    'T0i/T0e': 1
+                    }
         
             
 ## Rayleigh Flow (diabatic flow in constant-area channels) [heat transfer involved]
@@ -447,6 +457,9 @@ def rayleigh_sonic_stagn_press_ratio(M): # (8.15)
 def rayleigh_sonic_stagn_temp_ratio(M): # (8.16)
     return ((1+k)*M/(1+k*M**2)) ** 2 * (1+(k-1)/2*M**2) / (1+(k-1)/2) # T0 / T0star
     
+
+## Example problems that these solvers can handle
+
 if __name__ == "__main__":
     tic = perf_counter_ns()
     
@@ -485,6 +498,12 @@ if __name__ == "__main__":
     ## Mach 0.46 air enters a 2.6m long fanno duct with f=0.0035 and hydraulic diameter 25.4mm.
     ## The exit conditions are:
     # print(solve_fanno_duct(0.46, 0.0035, 25.4e-3, 2.6))
+    
+    ## Example 7
+    ## Mach 0.5 air enters an 8m long fanno duct with f=0.005 and hydraulic diameter 50mm. The
+    ## duct will become choked as L > Lstar, so the inlet Mach number will drop to about 0.36.
+    ## The exit conditions are:
+    # print(solve_fanno_duct(0.5, 0.005, 50e-3, 8))
     
     
     toc = perf_counter_ns()
