@@ -8,6 +8,7 @@ from math import log
 ## air conditions
 R = 287.1 # [J/kg·K]
 k = 1.4
+cp = 1.004 # [kJ/kg·K]
 
 ## General
 
@@ -426,13 +427,65 @@ def solve_fanno_duct(Mi, f, Dh, L):
         
         
             
+## Rayleigh Flow (diabatic flow in constant-area channels) [heat transfer involved]
+    
+def heat_absorption(T01, T02): # (8.6)
+    return cp*(T02 - T01) # q [kJ/kg]
+
+def get_mach_at_max_enthalpy():
+    return k ** (-0.5)
+
+def rayleigh_sonic_stat_press_ratio(M): # (8.13)
+    return (1 + k) / (1 + k*M**2) # P / Pstar
+
+def rayleigh_sonic_stat_temp_ratio(M): # (8.14)
+    return (rayleigh_sonic_stat_press_ratio(M) * M)**2 # T / Tstar
+
+def rayleigh_sonic_stagn_press_ratio(M): # (8.15)
+    return (1+k)/(1+k*M**2) * ((1+(k-1)/2*M**2) / (1+(k-1)/2)) ** (k/(k-1)) # P0 / P0star
+
+def rayleigh_sonic_stagn_temp_ratio(M): # (8.16)
+    return ((1+k)*M/(1+k*M**2)) ** 2 * (1+(k-1)/2*M**2) / (1+(k-1)/2) # T0 / T0star
     
 if __name__ == "__main__":
     tic = perf_counter_ns()
+    
+    
+    ## Example 1
+    ## A shockwave at Mach 1.5 enters into a closed pipe. The air in the pipe is at 300K
+    ## and 101.325kPa initially. The air is quiescent before it is hit by the shockwave.
+    ## The shock wave that reflects off the wall has the following properties:
     # print(reflected_shock_wave(1.5, 300))
-    # print(find_shock_position(1.8, 1/3, 100e3, 60e3))
+    
+    ## Example 2
+    ## A shockwave at Mach 1.5 enters into a closed pipe. The air in the pipe is at 300K
+    ## and 101.325kPa initially. The air is moving opposite to the shockwave (negative
+    ## direction) at 100 m/s before it is hit. The shockwave that reflects off the wall
+    ## has the following properties:
+    # print(reflected_shock_wave(1.5, 300, -100))
+    
+    ## Example 3
+    ## Mach 2.8 air enters a linearly converging duct. The outlet area is 1/3 of the inlet area
+    ## (Ai = 3*Ae). The back pressure is 60kPa, and the inlet stagnation pressure is 100kPa.
+    ## The shock wave is at the position:
     # print(find_shock_position(2.8, 3, 100e3, 60e3))
-    print(solve_fanno_duct(5, 0.0035, 12.7e-3, 1))
+    
+    ## Example 4
+    ## Mach 1.8 air enters a linearly diverging duct. The inlet area is 1/3 of the outlet area
+    ## (Ai = 1/3*Ae). The back pressure is 60kPa, and the inlet stagnation pressure is 100kPa.
+    ## The shock wave is at the position:
+    # print(find_shock_position(1.8, 1/3, 100e3, 60e3))
+    
+    ## Example 5
+    ## Mach 5 air enters a 1m long fanno duct with f=0.0035 and hydraulic diameter 12.7mm.
+    ## There is a shockwave because L > Lstar. The exit conditions are:
+    # print(solve_fanno_duct(5, 0.0035, 12.7e-3, 1))
+    
+    ## Example 6
+    ## Mach 0.46 air enters a 2.6m long fanno duct with f=0.0035 and hydraulic diameter 25.4mm.
+    ## The exit conditions are:
     # print(solve_fanno_duct(0.46, 0.0035, 25.4e-3, 2.6))
+    
+    
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")
