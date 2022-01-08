@@ -22,6 +22,39 @@ def central_diff_derivative(f, x):
     h = ε * 1e5
     return (f(x+h) - f(x-h)) / (2*h)
 
+def get_input_arg_from_func_value(param_objective, func, Mi, M_upper_bound=10):
+    if Mi < 1:
+        M_lower = 1e-4 # in case there is a singularity in the function at zero
+        M_upper = 1
+    
+    elif Mi > 1:
+        M_lower = 1
+        M_upper = M_upper_bound
+        
+    else: # Mi = 1 in this case
+        return 1
+    
+    M_mid = (M_lower + M_upper) / 2
+    param_lower = func(M_lower)
+    param_upper = func(M_upper)
+    
+    while True:
+        param_mid = func(M_mid)
+        
+        if param_lower < param_objective < param_mid or param_lower > param_objective > param_mid:
+            param_upper = param_mid
+            M_upper = M_mid
+            
+        elif param_mid < param_objective < param_upper or param_mid > param_objective > param_upper:
+            param_lower = param_mid
+            M_lower = M_mid
+            
+        M_prev = M_mid
+        M_mid = (M_lower + M_upper) / 2
+        
+        if abs(M_mid - M_prev) < ε:
+            return M_mid
+
 ## Variable Area Flow
 
 def stagn_temp_ratio(M): # (4.19)
@@ -39,21 +72,8 @@ def mass_flow_rate(M, P_0, T_0, A): # (4.36)
 def expansion_ratio(M): # (4.38)
     return 1/M * ( ((k+1)/2) / (stagn_temp_ratio(M)) ) ** ((k+1)/(2-2*k)) # A / A*
 
-def get_mach_from_expansion_ratio(A_Astar, Mi=1.5):
-    # TODO:
-    # Use bisection search for subsonic inlet Mach number due to odd behavior of the Newton-Raphson method (jumping over to
-    # the supersonic regime because of the high gradient changes in 0 < M < 1), and because it is bounded, so bisection search
-    # would be the fastest method. Keep the current solver for supersonic Mi as the region is unbounded (M > 1).
-    objective_function = lambda M, A_Astar=A_Astar: A_Astar - expansion_ratio(M)
-    begin = True
-    Mi_next = Mi
-    while begin or abs(Mi - Mi_next) > ε:
-        begin = False
-        Mi = Mi_next
-        Mi_next = Mi - objective_function(Mi)/(central_diff_derivative(objective_function, Mi))
-        # print(Mi_next)
-        
-    return Mi_next
+def get_mach_from_expansion_ratio(A_Astar, Mi):
+    return get_input_arg_from_func_value(A_Astar, expansion_ratio, Mi)
 
 ## Normal Shock Waves
 
@@ -72,18 +92,8 @@ def shock_stat_temp_ratio(M1): # (5.15)
 def shock_velocity_ratio(M1): # (5.16)
     return (1 + (k-1)/2*M1**2) / ((k+1)/2*M1**2) # v2 / v1
 
-def get_shock_mach_from_velocity_ratio(v_ratio, Mi=2.5): # v2/v1 ratio input
-    objective_function = lambda M1, v_ratio=v_ratio: v_ratio - shock_velocity_ratio(M1)
-    begin = True
-    Mi_next = Mi
-    while begin or abs(Mi - Mi_next) > ε:
-        begin = False
-        Mi = Mi_next
-        Mi_next = Mi - objective_function(Mi)/(central_diff_derivative(objective_function, Mi))
-        # print(Mi_next)
-        
-    return Mi_next
-    
+def get_shock_mach_from_velocity_ratio(v_ratio, Mi): # v2/v1 ratio input
+    return get_input_arg_from_func_value(v_ratio, shock_velocity_ratio, Mi) 
 
 def shock_stat_dens_ratio(M1): # (5.16)
     return 1/shock_velocity_ratio(M1) # ρ1 / ρ2
@@ -106,11 +116,16 @@ def reflected_shock_wave(Ms1, T1, v1=0):
         v2_dprime = vs2 - v2
         v3_dprime = vs2 - v3
         v_dprime_ratio = v3_dprime / v2_dprime
-        v_dprime_ratio = 0.2 if v_dprime_ratio < 0.2 else v_dprime_ratio
-        v_dprime_ratio = 1 if v_dprime_ratio > 1 else v_dprime_ratio
         
         M2_dprime_calc = get_mach_number(v2_dprime, T2)
-        M2_dprime_ratio = get_shock_mach_from_velocity_ratio(v_dprime_ratio, Mi=M2_dprime_calc)
+        if v_dprime_ratio > 1:
+            M2_dprime_ratio = 1
+            
+        elif v_dprime_ratio < 0.175:
+            M2_dprime_ratio = 10
+            
+        else:
+            M2_dprime_ratio = get_shock_mach_from_velocity_ratio(v_dprime_ratio, M2_dprime_calc)
         
         return M2_dprime_ratio - M2_dprime_calc
     
@@ -170,7 +185,7 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
         Ae_Astar2 = As_Astar2 / (n*q(p))
         
         if n < 1:
-            approx = 0.25
+            approx = 0.5
         else:
             approx = M2
         Me = get_mach_from_expansion_ratio(Ae_Astar2, approx)
@@ -215,7 +230,7 @@ def find_shock_position(Mi, n, P01, Pb): # n*Ae = Ai
     Pe_Δ_mid, Pe_Δ_mid_prev = 0, 0
     begin = True
     
-    while begin or abs(Pe_Δ_mid - Pe_Δ_mid_prev) > 1e-1:
+    while begin or abs(Pe_Δ_mid - Pe_Δ_mid_prev) > ε:
         begin = False
         Pe_Δ_mid_prev = Pe_Δ_mid
         Pe_Δ_mid = shock_pos_to_outlet_conditions(p_mid)['Pe_Δ']
@@ -304,37 +319,7 @@ def fanno_length_parameter(M): # (7.28)
     return -1/k - (k+1)/(2*k) * log(1/(1 + (k-1)/2)) + 1/(k*M**2) + (k+1)/(2*k) * log(M**2/(1 + (k-1)/2*M**2))
     
 def get_mach_from_fanno_length_parameter(fanno_param, Mi):
-    if Mi < 1:
-        M_lower = 0.001
-        M_upper = 1
-    
-    elif Mi > 1:
-        M_lower = 1
-        M_upper = 10
-        
-    else: # Mi = 1 in this case
-        return 1
-    
-    M_mid = (M_lower + M_upper) / 2
-    fanno_M_lower = fanno_length_parameter(M_lower)
-    fanno_M_upper = fanno_length_parameter(M_upper)
-    
-    while True:
-        fanno_M_mid = fanno_length_parameter(M_mid)
-        
-        if fanno_M_lower < fanno_param < fanno_M_mid or fanno_M_lower > fanno_param > fanno_M_mid:
-            fanno_M_upper = fanno_M_mid
-            M_upper = M_mid
-            
-        elif fanno_M_mid < fanno_param < fanno_M_upper or fanno_M_mid > fanno_param > fanno_M_upper:
-            fanno_M_lower = fanno_M_mid
-            M_lower = M_mid
-            
-        M_prev = M_mid
-        M_mid = (M_lower + M_upper) / 2
-        
-        if abs(M_mid - M_prev) < ε:
-            return M_mid
+    return get_input_arg_from_func_value(fanno_param, fanno_length_parameter, Mi)
     
 def solve_fanno_duct(Mi, f, Dh, L):
     fanno_param_inlet = fanno_length_parameter(Mi)
@@ -367,8 +352,6 @@ def solve_fanno_duct(Mi, f, Dh, L):
                 
                 return fanno_param_downstream_of_shock - 4*f*(L-L1)/Dh
             
-            # fanno_exit_Δ_lower = get_fanno_exit_Δ_from_shock_pos_guess(L_lower)
-            # fanno_exit_Δ_upper = get_fanno_exit_Δ_from_shock_pos_guess(L_upper)
             L_mid = (L_lower + L_upper) / 2
             fanno_exit_Δ_mid = 0
             while True:
@@ -376,11 +359,9 @@ def solve_fanno_duct(Mi, f, Dh, L):
                 fanno_exit_Δ_mid = get_fanno_exit_Δ_from_shock_pos_guess(L_mid)
                 
                 if fanno_exit_Δ_mid < 0:
-                    # fanno_exit_Δ_upper = fanno_exit_Δ_mid
                     L_upper = L_mid
                     
                 elif fanno_exit_Δ_mid > 0:
-                    # fanno_exit_Δ_lower = fanno_exit_Δ_mid
                     L_lower = L_mid
                     
                 L_mid = (L_lower + L_upper) / 2
@@ -457,6 +438,58 @@ def rayleigh_sonic_stagn_press_ratio(M): # (8.15)
 def rayleigh_sonic_stagn_temp_ratio(M): # (8.16)
     return ((1+k)*M/(1+k*M**2)) ** 2 * (1+(k-1)/2*M**2) / (1+(k-1)/2) # T0 / T0star
     
+def get_mach_from_sonic_stagn_temp_ratio(T0i_T0star, Mi):
+    return get_input_arg_from_func_value(T0i_T0star, rayleigh_sonic_stagn_temp_ratio, Mi)
+    
+def solve_rayleigh_duct(Mi, q, Ti=None, T0i=None):
+    if Ti is None and T0i is None:
+        print("\n\nEXCEPTION:\n\nYou have not given an inlet stagnation or static temperature for the solve_rayleigh_duct function.\nThe program will now terminate.")
+        exit()
+    
+    T0i_Ti = stagn_temp_ratio(Mi)
+    if T0i is None:
+        T0i = Ti*T0i_Ti
+    elif Ti is None:
+        Ti = T0i/T0i_Ti
+    else: # both are not None
+        if abs(T0i - T0i_Ti*Ti) > 1e-4:
+            print("\n\nEXCEPTION:\n\nYou have given both T0i and Ti but they disagree significantly according to your given inlet Mach number. Rather given only one of these.\nThe program will now terminate.")
+            exit()
+            
+    qstar = cp*(T0i/rayleigh_sonic_stagn_temp_ratio(Mi) - T0i)
+    print(f"q* = {qstar}")
+    
+    if qstar < q: # there will be heat choking at the exit if the inlet is subsonic, so Mi will drop to compensate
+        T0e = q/cp + T0i
+        T0i_T0e = T0i/T0e
+        Mi = get_mach_from_sonic_stagn_temp_ratio(T0i_T0e, Mi)
+        
+        Ti = T0i/stagn_temp_ratio(Mi)
+        Te = Ti/rayleigh_sonic_stat_temp_ratio(Mi)
+        
+        return {'Mi': Mi,
+                'Me': 1,
+                'Te': Te,
+                'Pi/Pe': rayleigh_sonic_stat_press_ratio(Mi),
+                'P0i/P0e': rayleigh_sonic_stagn_press_ratio(Mi),
+                'Ti/Te': Ti/Te,
+                'T0i/T0e': T0i_T0e}
+        
+    else: # qstar >= q
+        T0e = q/cp + T0i
+        T0star = T0i/rayleigh_sonic_stagn_temp_ratio(Mi)
+        T0e_T0star = T0e/T0star
+        Me = get_mach_from_sonic_stagn_temp_ratio(T0e_T0star, Mi)
+        Te = T0e/stagn_temp_ratio(Me)
+        
+        return {'Mi': Mi,
+                'Me': Me,
+                'Te': Te,
+                'Pi/Pe': rayleigh_sonic_stat_press_ratio(Mi)/rayleigh_sonic_stat_press_ratio(Me),
+                'P0i/P0e': rayleigh_sonic_stagn_press_ratio(Mi)/rayleigh_sonic_stagn_press_ratio(Me),
+                'Ti/Te': Ti/Te,
+                'T0i/T0e': T0i/T0e}
+            
 
 ## Example problems that these solvers can handle
 
@@ -505,6 +538,16 @@ if __name__ == "__main__":
     ## The exit conditions are:
     # print(solve_fanno_duct(0.5, 0.005, 50e-3, 8))
     
+    ## Example 8
+    ## Air with stagnation temperature and pressure of 173.5K and 100kPa respectively flow into
+    ## a Rayleigh duct at Mach 0.67. The specific heat load is 30kJ/kg. The inlet speed will
+    ## drop to about Mach 0.63 to accomodate for the heat choking:
+    # print(solve_rayleigh_duct(0.67, 30, T0i=173.5))
+    
+    ## Example 9
+    ## Air at static temperature 280K flows into a Rayleigh duct at Mach 2.21. It absorbs a
+    ## specific heat load of 150kJ/kg. The exit conditions are:
+    # print(solve_rayleigh_duct(2.21, 150, Ti=280))
     
     toc = perf_counter_ns()
     print(f"time: {(toc - tic)/1e6} ms")
